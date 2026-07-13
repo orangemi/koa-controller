@@ -157,17 +157,17 @@ export class ExampleController {
 - `@before((ctx) => Promise<void>)` runs before the next middleware.
 - `@after((ctx) => Promise<void>)` runs after downstream middleware completes successfully.
 
-Decorators of the same kind run from top to bottom. The overall sequence is:
+Within the controller and method scopes, `@before` callbacks and the entry phase of `@middleware` run from top to bottom in the order they are declared. The complete execution sequence is:
 
-1. Controller `@middleware`
-2. Controller `@before`
-3. Method `@middleware`
-4. Method `@before`
-5. Controller method
-6. Method `@after`
-7. Controller `@after`
+1. Controller-level `@before` callbacks and `@middleware` entry phases, in declaration order
+2. Method-level `@before` callbacks and `@middleware` entry phases, in declaration order
+3. Controller method
+4. Method-level `@after` callbacks, from top to bottom
+5. Method-level `@middleware` code after `await next()`, in reverse order
+6. Controller-level `@after` callbacks, from top to bottom
+7. Controller-level `@middleware` code after `await next()`, in reverse order
 
-Standard `@middleware` functions still follow Koa's onion model, so code after `await next()` unwinds in reverse order.
+This follows Koa's onion model while preserving top-to-bottom decorator order within each scope.
 
 ## Loading controllers
 

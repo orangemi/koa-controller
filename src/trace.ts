@@ -7,6 +7,7 @@ interface Context extends KoaContext {
   tracer: Tracer
   span?: Span
   routePath?: string
+  // TODO: Declare `traceId?: string` so the context type matches traceMW's runtime behavior.
 }
 
 interface Middleware extends KoaMiddleware<DefaultState, Context> { }
@@ -36,6 +37,7 @@ interface Middleware extends KoaMiddleware<DefaultState, Context> { }
  * app.use(traceMW(tracer, { als }))
  * ```
  */
+// TODO: Constrain T to an object type, or accept a store factory instead of casting an empty object to T.
 export function alsMW<T>(als: AsyncLocalStorage<T>): Middleware {
   return async (ctx, next) => {
     return als.run({} as T, () => {
