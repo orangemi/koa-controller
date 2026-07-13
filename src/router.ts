@@ -147,7 +147,7 @@ export function middleware(middleware: Middleware) {
 }
 
 function internalMiddleware(mwMaker: MiddlewareMaker, { pushToBottom = false } = {}) {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (target: any, propertyName?: string, _descriptor?: PropertyDescriptor) => {
     if (typeof propertyName === 'undefined') {
       // class Decorator
@@ -169,7 +169,7 @@ function internalMiddleware(mwMaker: MiddlewareMaker, { pushToBottom = false } =
       const controllerName = constructor.name
       debug(`@middleware for method ${controllerName}/${propertyName}`)
 
-      const mw = mwMaker({ controllerName })
+      const mw = mwMaker({ controllerName, propertyName })
 
       const controllerConstructor: ControllerConstructor = target.constructor
       const methodMetaMap = ensureControllerMeta(controllerConstructor).methodMetaMap
@@ -291,7 +291,7 @@ export function after(afterFunc: MiddlewareFn) {
 export function request(verb = 'get', pathname = '/') {
   assert.ok(verb)
   assert.ok(pathname)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (target: any, propertyName: string, _descriptor?: PropertyDescriptor) => {
     const controllerConstructor: ControllerConstructor = target.constructor
     debug(`@request ${controllerConstructor.name}/${propertyName} ${verb} ${pathname}`)

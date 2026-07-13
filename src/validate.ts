@@ -61,7 +61,7 @@ export function validate(jsonSchema: SchemaObject, {
     if (!validate(ctx)) {
       const error = validate.errors?.[0]
       assert(error, 'internal validation failed')
-      const message = (error.instancePath || '/') + ' ' + error.message
+      const message = (error.instancePath || '/') + ' ' + (error.message ?? 'validation failed')
       throw createHttpError(400, message, { ...error, message })
     }
   })
@@ -114,7 +114,7 @@ export function validateState(jsonSchema: SchemaObject, {
     if (!validate(ctx.state)) {
       const error = validate.errors?.[0]
       assert(error, 'internal validation failed')
-      const message = (error.instancePath || '/') + ' ' + error.message
+      const message = (error.instancePath || '/') + ' ' + (error.message ?? 'validation failed')
       throw createHttpError(400, message, { ...error, message })
     }
   })
