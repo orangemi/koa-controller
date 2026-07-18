@@ -18,14 +18,6 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Tag merged release PR and create GitHub Release
-        id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          release-type: node
-          target-branch: main
-          skip-github-pull-request: true
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -38,38 +30,43 @@ jobs:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Check whether this commit is an unpublished release
+      - name: Check whether this push merged a pending Release PR
         id: publish-check
         shell: bash
         env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          tag="$RELEASE_TAG"
-          if [ -z "$tag" ]; then
-            tag=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
-          fi
+          release_pr=$(
+            gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state merged \
+              --base main \
+              --label "autorelease: pending" \
+              --limit 20 \
+              --json number,mergeCommit \
+              | jq -r --arg sha "$GITHUB_SHA" \
+                '.[] | select(.mergeCommit.oid == $sha) | .number' \
+              | head -n 1
+          )
 
-          if [ -z "$tag" ]; then
-            echo "No release tag exists; skipping npm publish."
+          if [ -z "$release_pr" ]; then
+            echo "This push did not merge a pending Release PR; skipping."
             echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "should-finalize=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          git checkout --detach "$tag"
           version=$(node -p "require('./package.json').version")
-          if [ "$tag" != "v$version" ]; then
-            echo "Tag $tag does not match package version v$version."
-            exit 1
-          fi
-
           if npm view "@tng/koa-controller@$version" version >/dev/null 2>&1; then
             echo "@tng/koa-controller@$version is already published."
             echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "should-finalize=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Publishing @tng/koa-controller@$version."
+          echo "Release PR #$release_pr will publish @tng/koa-controller@$version."
           echo "should-publish=true" >> "$GITHUB_OUTPUT"
+          echo "should-finalize=true" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         if: steps.publish-check.outputs.should-publish == 'true'
@@ -88,3 +85,11 @@ jobs:
         run: pnpm publish --access public --no-git-checks --tag latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Tag the release and create GitHub Release
+        if: success() && steps.publish-check.outputs.should-finalize == 'true'
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+          target-branch: main
+          skip-github-pull-request: true
