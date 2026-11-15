@@ -122,23 +122,23 @@ describe('trace test suite', () => {
       assert.equal(ctx.traceId, 'trace-123')
     })
 
-    it('should set operation name with method and routePath', async () => {
+    it('should set operation name with method and routerPath', async () => {
       const mw = traceMW(mockTracer)
 
       const ctx: any = {
         method: 'POST',
-        url: '/api/data',
-        routePath: '/api/data',
+        url: '/api/data/42?verbose=1',
+        routerPath: '/api/data/:id',
         status: 201,
         headers: {},
       }
       const next = async () => {}
 
       await mw(ctx, next)
-      assert.equal(spans[0]._operationName, 'http-request POST /api/data')
+      assert.equal(spans[0]._operationName, 'http-request POST /api/data/:id')
     })
 
-    it('should fall back to url when routePath is missing', async () => {
+    it('should fall back to url when routerPath is missing', async () => {
       const mw = traceMW(mockTracer)
 
       const ctx: any = {

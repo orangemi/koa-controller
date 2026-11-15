@@ -7,7 +7,7 @@ interface Context extends KoaContext {
   tracer: Tracer
   span?: Span
   traceId?: string
-  routePath?: string
+  routerPath?: string
 }
 
 type Middleware = KoaMiddleware<DefaultState, Context>
@@ -103,7 +103,7 @@ export function traceMW<T extends { span?: Span, traceId?: string }>(tracer: Tra
     } 
 
     return next().finally(() => {
-      span.setOperationName(`http-request ${ctx.method} ${ctx.routePath || ctx.url || 'unknown'}`)
+      span.setOperationName(`http-request ${ctx.method} ${ctx.routerPath || ctx.url || 'unknown'}`)
       span.setTag(Tags.HTTP_STATUS_CODE, ctx.status)
       span.setTag(Tags.HTTP_METHOD, ctx.method)
       span.setTag(Tags.HTTP_URL, ctx.url)

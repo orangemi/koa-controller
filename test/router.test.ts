@@ -5,6 +5,8 @@ import type { Context } from 'koa'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import type { AddressInfo } from 'net'
+import Koa from 'koa'
 
 describe('router test suite', () => {
   it('should execute decorators in correct sequence', async () => {
@@ -170,6 +172,174 @@ describe('router test suite', () => {
 
     const koaRouter = router.loadRouter({ controllerConstructors: [FakeController] })
     assert.ok(koaRouter)
+  })
+
+  describe('response body', () => {
+    async function requestApp(controllerConstructor: any, pathname: string) {
+      const app = new Koa()
+      app.use(router.loadRouter({ controllerConstructors: [controllerConstructor] }).routes())
+      const server = app.listen(0)
+      try {
+        const { port } = server.address() as AddressInfo
+        return await fetch(`http://127.0.0.1:${port}${pathname}`, { redirect: 'manual' })
+      } finally {
+        server.close()
+      }
+    }
+
+    @router.controller('/body')
+    class BodyController {
+      @router.get('/returned')
+      async returned() { return { from: 'return' } }
+
+      @router.get('/assigned')
+      async assigned(_: unknown, ctx: Context) { ctx.body = 'assigned by method' }
+
+      @router.get('/redirect')
+      async redirect(_: unknown, ctx: Context) { ctx.redirect('/elsewhere') }
+
+      @router.get('/both')
+      async both(_: unknown, ctx: Context) {
+        ctx.body = 'assigned by method'
+        return 'returned by method'
+      }
+
+      @router.get('/empty')
+      async empty() {}
+    }
+
+    it('should use the returned value as the body', async () => {
+      const res = await requestApp(BodyController, '/body/returned')
+      assert.equal(res.status, 200)
+      assert.deepEqual(await res.json(), { from: 'return' })
+    })
+
+    it('should keep a body assigned by the method when it returns nothing', async () => {
+      const res = await requestApp(BodyController, '/body/assigned')
+      assert.equal(res.status, 200)
+      assert.equal(await res.text(), 'assigned by method')
+    })
+
+    it('should keep a redirect issued by the method', async () => {
+      const res = await requestApp(BodyController, '/body/redirect')
+      assert.equal(res.status, 302)
+      assert.equal(res.headers.get('location'), '/elsewhere')
+    })
+
+    it('should prefer the returned value over an assigned body', async () => {
+      const res = await requestApp(BodyController, '/body/both')
+      assert.equal(await res.text(), 'returned by method')
+    })
+
+    it('should respond 204 when the method neither returns nor assigns a body', async () => {
+      const res = await requestApp(BodyController, '/body/empty')
+      assert.equal(res.status, 204)
+    })
+  })
+
+  describe('controller inheritance', () => {
+    async function call(koaRouter: ReturnType<typeof router.loadRouter>, method: string, path: string) {
+      const ctx: any = { method, path, headers: {}, query: {}, request: { body: {} } }
+      await koaRouter.routes()(ctx, (() => {}) as any)
+      return ctx
+    }
+
+    it('should not add subclass routes to the parent controller', async () => {
+      @router.controller('/parent')
+      class ParentController {
+        @router.get('/shared')
+        async shared() { return 'shared' }
+      }
+
+      @router.controller('/child')
+      class ChildController extends ParentController {
+        @router.get('/own')
+        async own() { return 'own' }
+      }
+
+      const parentRouter = router.loadRouter({ controllerConstructors: [ParentController] })
+      assert.equal((await call(parentRouter, 'GET', '/parent/shared')).body, 'shared')
+      assert.equal((await call(parentRouter, 'GET', '/parent/own')).body, undefined)
+      assert.equal((await call(parentRouter, 'GET', '/child/own')).body, undefined)
+
+      const childRouter = router.loadRouter({ controllerConstructors: [ChildController] })
+      assert.equal((await call(childRouter, 'GET', '/child/own')).body, 'own')
+    })
+
+    it('should inherit parent routes under the subclass prefix only', async () => {
+      @router.controller('/parent')
+      class ParentController {
+        @router.get('/shared')
+        async shared() { return this.name() }
+        name() { return 'parent' }
+      }
+
+      @router.controller('/child')
+      class ChildController extends ParentController {
+        name() { return 'child' }
+      }
+
+      const koaRouter = router.loadRouter({ controllerConstructors: [ParentController, ChildController] })
+      assert.equal((await call(koaRouter, 'GET', '/parent/shared')).body, 'parent')
+      assert.equal((await call(koaRouter, 'GET', '/child/shared')).body, 'child')
+    })
+
+    it('should not register a subclass that declares no prefix of its own', async () => {
+      let instances = 0
+      @router.controller('/parent')
+      class ParentController {
+        constructor() { instances++ }
+        @router.get('/shared')
+        async shared() { return 'shared' }
+      }
+      class ChildController extends ParentController {}
+
+      const koaRouter = router.loadRouter({ controllerConstructors: [ChildController] })
+      assert.equal(instances, 0)
+      assert.equal((await call(koaRouter, 'GET', '/parent/shared')).body, undefined)
+    })
+
+    it('should run parent middlewares around subclass middlewares', async () => {
+      const sequence: string[] = []
+      @router.controller('/parent')
+      @router.before(async () => { sequence.push('parent before') })
+      @router.after(async () => { sequence.push('parent after') })
+      class ParentController {
+        @router.get('/shared')
+        @router.before(async () => { sequence.push('parent method before') })
+        async shared() { sequence.push('method') }
+      }
+
+      @router.controller('/child')
+      @router.before(async () => { sequence.push('child before') })
+      @router.after(async () => { sequence.push('child after') })
+      class ChildController extends ParentController {}
+
+      const childRouter = router.loadRouter({ controllerConstructors: [ChildController] })
+      await call(childRouter, 'GET', '/child/shared')
+      assert.deepEqual(sequence, [
+        'parent before',
+        'child before',
+        'parent method before',
+        'method',
+        'child after',
+        'parent after',
+      ])
+
+      sequence.length = 0
+      const parentRouter = router.loadRouter({ controllerConstructors: [ParentController] })
+      await call(parentRouter, 'GET', '/parent/shared')
+      assert.deepEqual(sequence, ['parent before', 'parent method before', 'method', 'parent after'])
+    })
+  })
+
+  it('should store controller metadata under a globally registered symbol', () => {
+    @router.controller('/symbol')
+    class FakeController {
+      @router.get('/')
+      async index() {}
+    }
+    assert.ok(Object.getOwnPropertySymbols(FakeController).includes(Symbol.for('@tng/koa-controller:controller')))
   })
 
   describe('getRouterSync', () => {

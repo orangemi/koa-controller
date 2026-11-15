@@ -108,6 +108,33 @@ export class HealthController {
 
 A controller class is instantiated once when the router is built. Do not keep request-specific mutable state on the instance because it is shared by concurrent requests.
 
+### Controller inheritance
+
+A controller can extend another controller. The subclass inherits the parent's routes and middlewares; decorating the subclass never changes the parent.
+
+```ts
+@controller('/v1/users')
+@before(authenticate)
+export class UserController {
+  @get('/:id')
+  async getUser(state, ctx) {
+    return this.find(ctx.params.id)
+  }
+}
+
+@controller('/v2/users')
+export class UserV2Controller extends UserController {
+  @get('/:id/profile')
+  async getProfile(state, ctx) {
+    return this.findProfile(ctx.params.id)
+  }
+}
+```
+
+- Prefixes are not inherited. A subclass is registered only under the prefixes it declares with its own `@controller`, and a subclass without `@controller` is not registered.
+- Parent middlewares wrap the subclass's own: parent `@before` callbacks run first and parent `@after` callbacks run last.
+- Each registered class gets its own instance, so an inherited route calls the subclass's overridden methods.
+
 ### `@request(verb?: string, pathname?: string)`
 
 Registers a controller method for an HTTP verb and path. The same method can have more than one route decorator.
@@ -123,6 +150,16 @@ export class SessionController {
 ```
 
 Controller methods must be asynchronous/thenable. Their resolved result is assigned to `ctx.body`.
+
+A method may also write the response itself, for example by assigning a stream to `ctx.body` or calling `ctx.redirect()`. When the method resolves to `undefined`, a body it set on the context is kept. When it neither returns a value nor sets a body, the response is `204 No Content`.
+
+```ts
+@get('/download')
+async download(state, ctx) {
+  ctx.type = 'text/csv'
+  ctx.body = createReadStream(reportPath)
+}
+```
 
 ### `@get(pathname?: string)` and `@post(pathname?: string)`
 
