@@ -4,10 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prestart": "npm --prefix ../.. run build",
     "start": "NODE_OPTIONS=\"--loader=ts-node/esm\" ts-node src/app.ts"
   },
   "dependencies": {
-    "@tng/koa-controller": "file:../../",
-    "koa": "^2.14.1"
+    "@tng/koa-controller": "link:../..",
+    "koa": "^2.14.1",
+    "koa-bodyparser": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/koa": "^2.15.0",
+    "@types/koa-bodyparser": "^4.3.13",
+    "@types/koa-router": "^7.4.9",
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.0"
   }
 }

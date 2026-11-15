@@ -1,6 +1,6 @@
 # @tng/koa-controller
 
-Decorator-based controllers and routing utilities for TypeScript applications built with [Koa](https://koajs.com/). The package includes request-state mapping, AJV validation, request logging, error handling, and OpenTracing middleware.
+Decorator-based controllers and routing utilities for TypeScript applications built with [Koa](https://koajs.com/). The package includes typed request-state mapping, AJV validation, request logging, error handling, and OpenTracing middleware.
 
 ## Installation
 
@@ -249,7 +249,84 @@ Set `DEBUG=koa:controller` to inspect controller discovery and route registratio
 
 ## Request State
 
-### `@state(map?)`
+### `@stateInput(fields)`
+
+Builds `ctx.state` from the fields you declare and gives you its type. Each field says which part of the request it comes from and keeps the name it has there.
+
+```ts
+import { controller, post, stateInput, validateState, Type, type InputType } from '@tng/koa-controller'
+
+const CreateComment = {
+  id: Type.Number({ from: 'params', required: true }),
+  content: Type.String({ required: true }),
+  page: Type.Number({ from: 'query' }),
+  tags: Type.Array(Type.String()),
+}
+
+@controller('/posts')
+export class CommentController {
+  @post('/:id/comments')
+  @stateInput(CreateComment)
+  @validateState({
+    type: 'object',
+    required: ['id', 'content'],
+    properties: {
+      id: { type: 'integer' },
+      content: { type: 'string', minLength: 1 },
+      page: { type: 'integer', minimum: 1 },
+      tags: { type: 'array', items: { type: 'string' } },
+    },
+  })
+  async create(state: InputType<typeof CreateComment>) {
+    // state: { id: number; content: string; page?: number; tags?: string[] }
+    return state
+  }
+}
+```
+
+`POST /posts/42/comments?page=2` with body `{ "content": "hi" }` gives `{ id: 42, content: 'hi', page: 2 }`.
+
+The two decorators have separate jobs:
+
+| Decorator | Job |
+| --- | --- |
+| `@stateInput` | Picks each field from its source and puts it in `ctx.state`. Describes the state's TypeScript type. |
+| [`@validateState`](#validatestateschema-options) | Checks the state with AJV: types, required fields, any other JSON Schema rule. Converts values such as `"42"` to `42`. |
+
+`@stateInput` on its own does not validate or convert anything. Values are copied as they arrive, so without `@validateState` the `id` above is the string `"42"` and a missing `content` is simply absent. The types you declare with `Type` are a description of what the method expects; the `@validateState` schema is what enforces it. Keep the two in agreement: nothing checks that they match.
+
+Field options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `from` | `'body'` | Where the field is read from: `'params'`, `'query'`, or `'body'`. |
+| `required` | `false` | Set to `true` to make the field a non-optional property of the state type. |
+
+Builders:
+
+| Builder | State type |
+| --- | --- |
+| `Type.String()` | `string` |
+| `Type.Number()` | `number` |
+| `Type.Boolean()` | `boolean` |
+| `Type.Array(Type.String())` | `string[]` |
+| `Type.Enum(['asc', 'desc'])` | `'asc' \| 'desc'` |
+| `Type.Object({ name: Type.String({ required: true }) })` | `{ name: string }` |
+| `Type.Union([Type.String(), Type.Number()])` | `string \| number` |
+
+How the state is built:
+
+- **Only declared fields are copied.** A field is read from its own source and nowhere else, so a body field cannot be supplied through the query string, and undeclared fields never reach `state`.
+- **Names are not changed.** `id` with `from: 'params'` is `ctx.params.id`.
+- **The result replaces `ctx.state`.** Copy anything you need from earlier middleware onto `ctx` instead.
+- **`from` is for top-level fields.** A nested object or array is read as a whole from one source. Request headers are not a source; read them from `ctx`.
+- **There are no default values.** Handle them in the method, for example `state.page ?? 1`.
+
+The decorator checks the method against the definition at compile time: declaring `state: { id: string }` for the definition above is a type error.
+
+### `@state(map?)` (deprecated)
+
+> Deprecated. Use [`@stateInput`](#stateinputfields), which also validates the state and provides its type.
 
 Without a map, `@state()` replaces `ctx.state` with a shallow merge of `ctx.query`, `ctx.request.body`, and `ctx.params`. Later sources take precedence, so path parameters override body values and body values override query values.
 
