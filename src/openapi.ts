@@ -1,6 +1,7 @@
 import type { SchemaObject } from 'ajv'
 import { ensureControllerMeta, ensureMethodMeta, joinRoutePath, resolveControllerMeta } from './metadata.js'
 import type { ControllerConstructor, MethodMeta } from './metadata.js'
+import { assertStateConsistent } from './state-check.js'
 
 /** An OpenAPI response object, passed through to the document unchanged. */
 export interface OpenAPIResponse {
@@ -248,6 +249,7 @@ export function generateOpenAPI({
 
     controllerMeta.methodMetaMap.forEach((methodMeta, propertyName) => {
       if (typeof controllerConstructor.prototype[propertyName] !== 'function') return
+      assertStateConsistent(controllerName, propertyName, methodMeta)
       const doc = methodMeta.doc ?? {}
       // Only `@validateState` rejects requests; `@stateInput` copies values as they are.
       const validated = methodMeta.stateSchemas.length > 0

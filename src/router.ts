@@ -8,6 +8,7 @@ import { strict as assert } from'assert'
 import { createRequire } from 'node:module'
 import { ensureControllerMeta, ensureMethodMeta, joinRoutePath, resolveControllerMeta, Route } from './metadata.js'
 import type { Context, ControllerConstructor, Middleware } from './metadata.js'
+import { assertStateConsistent } from './state-check.js'
 
 
 /**
@@ -346,6 +347,7 @@ export function loadRouter({
       debug('getRouter method', methodMeta)
       const controllerMethod = controllerMethods[propertyName]
       if (typeof controllerMethod !== 'function') return
+      assertStateConsistent(controllerName, propertyName, methodMeta)
       const routerName = controllerName + '/' + propertyName
       const methodMiddlewares = methodMeta.middlewares || []
 
