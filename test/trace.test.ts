@@ -153,6 +153,22 @@ describe('trace test suite', () => {
       assert.equal(spans[0]._operationName, 'http-request GET /some/path')
     })
 
+    it('should redact sensitive query parameters in the span', async () => {
+      const mw = traceMW(mockTracer, { redactQuery: ['session'] })
+
+      const ctx: any = {
+        method: 'GET',
+        url: '/cb?token=abc&session=def&page=2',
+        status: 200,
+        headers: {},
+      }
+      await mw(ctx, async () => {})
+      const redacted = '/cb?token=[REDACTED]&session=[REDACTED]&page=2'
+      assert.equal(spans[0]._operationName, `http-request GET ${redacted}`)
+      assert.ok(!JSON.stringify(spans[0]._tags).includes('abc'))
+      assert.ok(JSON.stringify(spans[0]._tags).includes(redacted))
+    })
+
     it('should set HTTP tags on span', async () => {
       const mw = traceMW(mockTracer)
 
