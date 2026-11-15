@@ -2,7 +2,7 @@ import 'mocha'
 import { strict as assert } from 'assert'
 import * as router from '../src/router.js'
 import type { Context } from 'koa'
-import { mkdtempSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import type { AddressInfo } from 'net'
@@ -385,6 +385,21 @@ module.exports = function FakeController() {}
       const koaRouter = router.getRouterSync({ cwd: tmpDir, files: 'nonexistent/**/*.js' })
       assert.ok(koaRouter)
     })
+
+    it('should load files in ascending path order', () => {
+      const loaded: string[] = []
+      ;(globalThis as any).__koaControllerLoadOrder = loaded
+      mkdirSync(join(tmpDir, 'sub'))
+      for (const name of ['user', 'c', '10-z', 'b', 'admin', '02-b', 'a', 'sub/x', '01-a', 'Zeta', 'sub-y']) {
+        writeFileSync(join(tmpDir, `${name}.js`), `globalThis.__koaControllerLoadOrder.push(${JSON.stringify(name)})`)
+      }
+      try {
+        router.getRouterSync({ cwd: tmpDir, files: '**/*.js' })
+      } finally {
+        delete (globalThis as any).__koaControllerLoadOrder
+      }
+      assert.deepEqual(loaded, ['01-a', '02-b', '10-z', 'Zeta', 'a', 'admin', 'b', 'c', 'sub-y', 'sub/x', 'user'])
+    })
   })
 
   describe('getRouterAsync', () => {
@@ -415,7 +430,46 @@ export class HomeController {
       assert.equal(ctx.body, 'hello from esm')
     })
 
-    it('should support prefix option', async () => {
+it('should load files in ascending path order', async () => {
+      const loaded: string[] = []
+      ;(globalThis as any).__koaControllerLoadOrder = loaded
+      mkdirSync(join(tmpDir, 'sub'))
+      for (const name of ['user', 'c', '10-z', 'b', 'admin', '02-b', 'a', 'sub/x', '01-a', 'Zeta', 'sub-y']) {
+        writeFileSync(join(tmpDir, `${name}.mjs`), `globalThis.__koaControllerLoadOrder.push(${JSON.stringify(name)})`)
+      }
+      try {
+        await router.getRouterAsync({ cwd: tmpDir, files: '**/*.mjs' })
+      } finally {
+        delete (globalThis as any).__koaControllerLoadOrder
+      }
+      assert.deepEqual(loaded, ['01-a', '02-b', '10-z', 'Zeta', 'a', 'admin', 'b', 'c', 'sub-y', 'sub/x', 'user'])
+    })
+
+    it('should let file names decide which overlapping route matches', async () => {
+      const source = (className: string, pathname: string, body: string) => `
+import { controller, get } from '../src/index.js'
+
+@controller('/users')
+export class ${className} {
+  @get('${pathname}')
+  async handle() { return '${body}' }
+}
+`
+      // Written in the opposite order to the one they must be loaded in.
+      writeFileSync(join(tmpDir, '02-by-id.ts'), source('ByIdController', '/:id', 'by id'))
+      writeFileSync(join(tmpDir, '01-me.ts'), source('MeController', '/me', 'me'))
+
+      const koaRouter = await router.getRouterAsync({ cwd: tmpDir, files: '**/*.ts' })
+      const request = async (path: string) => {
+        const ctx: any = { method: 'GET', path, headers: {}, query: {}, request: { body: {} } }
+        await koaRouter.routes()(ctx, (() => {}) as any)
+        return ctx.body
+      }
+      assert.equal(await request('/users/me'), 'me')
+      assert.equal(await request('/users/42'), 'by id')
+    })
+
+        it('should support prefix option', async () => {
       writeFileSync(join(tmpDir, 'api.ts'), `
 import { controller, get } from '../src/index.js'
 

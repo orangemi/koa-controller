@@ -479,7 +479,8 @@ export function loadRouter({
  *
  * Use this synchronous loader only when every matched controller module can be
  * loaded by CommonJS `require()`. Each controller class must be exported from
- * its module. Use {@link getRouterAsync} for ESM controller modules.
+ * its module. Use {@link getRouterAsync} for ESM controller modules. Files are
+ * loaded in ascending order of their paths.
  *
  * @param options Controller discovery and router options.
  * @param options.cwd Base directory used to resolve `files`. Defaults to
@@ -518,7 +519,7 @@ export function getRouterSync({
   // @ts-ignore TS1343 — import.meta only in ESM, stripped for CJS build
   const metaUrl: string = import.meta?.url ?? ''
   const localRequire: NodeRequire = metaUrl ? createRequire(metaUrl) as NodeRequire : require as NodeRequire
-  globSync(files, { cwd }).forEach(file => {
+  findControllerFiles(files, cwd).forEach(file => {
     debug(`getRouterSync: load file ${file} ...`)
     collectExports(localRequire(path.resolve(cwd, file)), controllerConstructors)
   })
@@ -530,8 +531,9 @@ export function getRouterSync({
  * and builds a Koa router.
  *
  * This is the recommended loader for ESM projects. Every controller class must
- * be exported from its module. Files are imported sequentially in glob result
- * order before their exported classes are passed to {@link loadRouter}.
+ * be exported from its module. Files are imported sequentially in ascending
+ * order of their paths before their exported classes are passed to
+ * {@link loadRouter}.
  *
  * @param options Controller discovery and router options.
  * @param options.cwd Base directory used to resolve `files`. Defaults to
@@ -566,7 +568,7 @@ export async function getRouterAsync({
   logger?: Logger
 } = {}): Promise<KoaRouter> {
   const controllerConstructors: ControllerConstructor[] = []
-  const matchedFiles = globSync(files, { cwd })
+  const matchedFiles = findControllerFiles(files, cwd)
   for (const file of matchedFiles) {
     debug(`loadControllers: load file ${file} ...`)
     const fileUrl = pathToFileURL(path.resolve(cwd, file)).href
@@ -574,6 +576,23 @@ export async function getRouterAsync({
     collectExports(exportObject, controllerConstructors)
   }
   return loadRouter({ prefix, controllerConstructors, logger })
+}
+
+/**
+ * Finds controller files and returns them in a stable order.
+ *
+ * `glob` returns matches in directory traversal order, which differs between
+ * file systems. Routes are matched in registration order, so the files are
+ * sorted by path to make that order the same on every machine. The comparison
+ * is by character code, with `/` as the separator on every platform.
+ */
+function findControllerFiles(files: string, cwd: string): string[] {
+  const sortKey = (file: string) => file.split(path.sep).join('/')
+  return globSync(files, { cwd }).sort((a, b) => {
+    const keyA = sortKey(a)
+    const keyB = sortKey(b)
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0
+  })
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

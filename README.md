@@ -227,6 +227,15 @@ Options:
 | `prefix` | `''` | Prefix passed to the underlying Koa router. |
 | `logger` | `undefined` | Accepted for API compatibility; controller discovery currently uses the `koa:controller` debug namespace. |
 
+Matched files are loaded in ascending order of their paths, on every platform. Routes are matched in the order they are registered, so when two routes overlap, the one in the file that sorts first wins. Name the files to control this:
+
+```text
+controllers/01-users-me.ts    →  GET /users/me     (registered first)
+controllers/02-users.ts       →  GET /users/:id
+```
+
+Paths are compared character by character, so digits sort before uppercase letters, which sort before lowercase letters, and `10-x.ts` sorts before `2-x.ts`. Pad numeric prefixes with zeros (`02-`, `10-`).
+
 For dependency injection or tests, use `loadRouter` to provide constructors directly:
 
 ```ts
