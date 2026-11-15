@@ -9,7 +9,7 @@ pnpm add @tng/koa-controller koa koa-bodyparser
 pnpm add -D typescript @types/koa @types/koa-bodyparser @types/koa-router
 ```
 
-The package targets Node.js 18 or later and uses legacy TypeScript decorators. Enable decorator support in your `tsconfig.json`:
+The package targets Node.js 20 or later and uses legacy TypeScript decorators. Enable decorator support in your `tsconfig.json`:
 
 ```json
 {
