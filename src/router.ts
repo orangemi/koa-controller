@@ -64,8 +64,6 @@ class Route {
 class MethodMeta {
   routes: Route[] = []
   middlewares: Middleware[] = []
-  requestStream?: boolean = false
-  responseStream?: boolean = false
 }
 
 /**
@@ -139,7 +137,7 @@ export function middleware(middleware: Middleware) {
     if (propertyName) {
       span?.setTag('Method', propertyName)
     }
-    span?.setTag('Middeware', middlewareName)
+    span?.setTag('Middleware', middlewareName)
     return middleware(ctx, next).finally(() => {
       span?.finish()
     })
@@ -260,7 +258,7 @@ export function after(afterFunc: MiddlewareFn) {
     if (propertyName) {
       span?.setTag('Method', propertyName)
     }
-    span?.setTag('Before', afterName)
+    span?.setTag('After', afterName)
     await afterFunc(ctx).finally(() => span?.finish())
   }
   return internalMiddleware(mwMaker, { pushToBottom: true })
