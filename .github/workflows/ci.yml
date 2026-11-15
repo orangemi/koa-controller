@@ -29,6 +29,9 @@ jobs:
       - name: Lint code
         run: pnpm lint
 
+      - name: Check types
+        run: pnpm test:types
+
       - name: Run test coverage
         run: pnpm test:coverage
 

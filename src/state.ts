@@ -13,6 +13,9 @@ import { before } from './router.js'
  * `lodash.get`. Paths are evaluated from left to right; when several paths are
  * provided, each value overwrites the previous value, including `undefined`.
  *
+ * @deprecated Use `stateInput`, which declares where each field comes from,
+ * validates the result, and provides the state type.
+ *
  * @param params Map of state property names to context lookup paths. Omit the
  * map to merge query, body, and route parameters into the state.
  * @returns A class or method decorator implemented as a `before` middleware.
