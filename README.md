@@ -1,6 +1,6 @@
 # @tng/koa-controller
 
-Decorator-based controllers and routing utilities for TypeScript applications built with [Koa](https://koajs.com/). The package includes typed request-state mapping, AJV validation, request logging, error handling, and OpenTracing middleware.
+Decorator-based controllers and routing utilities for TypeScript applications built with [Koa](https://koajs.com/). The package includes typed request-state mapping, OpenAPI generation, AJV validation, request logging, error handling, and OpenTracing middleware.
 
 ## Installation
 
@@ -444,6 +444,95 @@ export class UserController {
 ```
 
 In this pattern, `@state` builds the value, `@validateState` verifies it at runtime, and `GetUserState` provides autocomplete and compile-time checks inside the controller method.
+
+## OpenAPI
+
+### `generateOpenAPI(options)`
+
+Generates an [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0) document from a router built by `getRouterAsync`, `getRouterSync` or `loadRouter`. Paths and methods are the ones the router actually serves, prefix included, and parameters and request bodies come from [`@stateInput`](#stateinputfields):
+
+| `@stateInput` field | In the document |
+| --- | --- |
+| `from: 'params'` | Path parameter |
+| `from: 'query'` | Query parameter |
+| `from: 'body'` (the default) | Property of the JSON request body |
+
+```ts
+import { generateOpenAPI, getRouterAsync } from '@tng/koa-controller'
+
+const router = await getRouterAsync({
+  files: 'src/controllers/**/*.[jt]s',
+  prefix: '/v1',
+})
+app.use(router.routes())
+
+const document = generateOpenAPI({
+  router,
+  info: { title: 'Blog API', version: '1.0.0' },
+})
+```
+
+The result is a plain object. Serve it from a route, or write it to a file.
+
+Options:
+
+| Option | Description |
+| --- | --- |
+| `router` | The router to document. Required. |
+| `info` | `{ title, version }`, plus any other OpenAPI `info` fields. Required. |
+| `prefix` | Prefix added to every path, for a router mounted under a path it does not know about, such as with `koa-mount`. |
+| `servers` | OpenAPI server objects. |
+| `components` | OpenAPI components, copied unchanged. Use it for security schemes. |
+| `security` | Security requirements applied to every operation. |
+
+Which routes are documented:
+
+- **Routes built from controllers.** Each route handler `loadRouter` registers carries its controller method's metadata, so the document follows the router: a prefix set later with `router.prefix()` is included, and so is the path of a parent router the routes are merged into with `parent.use('/api', router.routes())`. Such a parent router can be passed too.
+- **Not routes added by hand**, such as `router.get('/health', ...)`.
+- **Optional segments** such as `/list{/:page}` become one path per variant, since OpenAPI paths cannot have optional parts. Wildcards such as `/*rest` become a `{rest}` parameter.
+- A router that was not built by koa-controller and has none of its routes is rejected with a `TypeError`.
+
+What ends up in the document:
+
+- **Types and required flags** from the `Type` builders.
+- **Rules from a [`@validateState`](#validatestateschema-options) on the same method**: its top-level `properties` are merged into the matching fields and its `required` list is honored, so `{ type: 'integer', minimum: 1 }` shows up on the parameter. Where the two disagree, the `@validateState` rule is shown, since that is what requests are checked against.
+- **Path parameters without a `@stateInput` field** are listed as strings.
+- **A `400` response** on every route that uses `@validateState`.
+
+What does not: anything in a `@validateState` schema beyond its top-level `properties` and `required` (a root `oneOf`, `anyOf` or `if`, for example), request headers, and routes whose state is built with the deprecated `@state`, which does not say where a field comes from. Response bodies are only documented when you describe them with `@apiDoc`.
+
+### `@apiDoc(options)`
+
+Adds descriptions and responses to an operation. It has no effect on request handling.
+
+```ts
+@controller('/posts')
+@apiDoc({ tags: ['posts'], responses: { 401: { description: 'Not signed in' } } })
+export class PostController {
+  @get('/:id')
+  @apiDoc({
+    summary: 'Get a post',
+    responses: {
+      200: { description: 'The post' },
+      404: { description: 'No post has this id' },
+    },
+  })
+  @stateInput({ id: Type.Number({ from: 'params', required: true }) })
+  async show(state: { id: number }) {
+    return postService.find(state.id)
+  }
+}
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `summary`, `description` | none | Text for the operation. Method only. |
+| `operationId` | `ControllerName_methodName` | Unique name of the operation. Method only. |
+| `tags` | The controller class name | Groups operations. |
+| `deprecated` | none | Marks the operation as deprecated. |
+| `responses` | `200: Successful response` | OpenAPI response objects keyed by status code, copied unchanged. |
+
+On a class, `tags`, `deprecated` and `responses` are defaults for every route; values on a method override them.
 
 ## Request logging
 

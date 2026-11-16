@@ -3,16 +3,11 @@ import { pathToFileURL } from 'node:url'
 import { globSync } from 'glob'
 import Debug from 'debug'
 import KoaRouter from 'koa-router'
-import type { Context as KoaContext, DefaultState, Middleware as KoaMiddleware } from 'koa'
-import type { Span } from 'opentracing'
 import type { Logger } from './logger.js'
 import { strict as assert } from'assert'
 import { createRequire } from 'node:module'
-
-interface Context extends KoaContext {
-  span?: Span
-}
-type Middleware = KoaMiddleware<DefaultState, Context>
+import { defineHidden, ensureControllerMeta, ensureMethodMeta, joinRoutePath, resolveControllerMeta, Route, routeSymbol, routerSymbol } from './metadata.js'
+import type { Context, ControllerConstructor, Middleware } from './metadata.js'
 
 /**
  * A function used by {@link before} and {@link after}.
@@ -28,88 +23,6 @@ export interface MiddlewareFn {
 type MiddlewareMaker = (options: {controllerName: string, propertyName?: string}) => Middleware
 
 const debug = Debug('koa:controller')
-// Registered globally so that every loaded copy of this package (ESM and CJS
-// builds, or duplicated installs) recognizes the same controller metadata.
-const controllerSymbol = Symbol.for('@tng/koa-controller:controller')
-
-type Controller = object
-
-interface ControllerConstructor {
-  new (): Controller
-  [controllerSymbol]?: ControllerMeta
-}
-
-class ControllerMeta {
-  prefixs: string[] = []
-  middlewares: Middleware[] = []
-  methodMetaMap: Map<string, MethodMeta> = new Map()
-}
-
-function getOwnControllerMeta(constructor: ControllerConstructor): ControllerMeta | undefined {
-  // Static members are inherited through the prototype chain, so a plain
-  // property read on a subclass would return the parent's metadata.
-  return Object.prototype.hasOwnProperty.call(constructor, controllerSymbol)
-    ? constructor[controllerSymbol]
-    : undefined
-}
-
-function ensureControllerMeta(constructor: ControllerConstructor): ControllerMeta {
-  let meta = getOwnControllerMeta(constructor)
-  if (!meta) {
-    meta = new ControllerMeta()
-    constructor[controllerSymbol] = meta
-  }
-  return meta
-}
-
-/**
- * Merges the metadata declared on a controller class with the metadata
- * declared on its parent classes.
- *
- * Routes and middlewares are inherited, with parent middlewares placed before
- * the subclass's own so that they wrap them. Prefixes are not inherited: a
- * class is only registered under the prefixes it declares itself.
- */
-function resolveControllerMeta(constructor: ControllerConstructor): ControllerMeta | undefined {
-  const ownMeta = getOwnControllerMeta(constructor)
-  if (!ownMeta) return undefined
-
-  const chain: ControllerMeta[] = []
-  for (let current = constructor; typeof current === 'function'; current = Object.getPrototypeOf(current)) {
-    const meta = getOwnControllerMeta(current)
-    if (meta) chain.unshift(meta)
-  }
-
-  const resolved = new ControllerMeta()
-  resolved.prefixs = [...ownMeta.prefixs]
-  for (const meta of chain) {
-    resolved.middlewares.push(...meta.middlewares)
-    meta.methodMetaMap.forEach((methodMeta, propertyName) => {
-      let resolvedMethodMeta = resolved.methodMetaMap.get(propertyName)
-      if (!resolvedMethodMeta) {
-        resolvedMethodMeta = new MethodMeta()
-        resolved.methodMetaMap.set(propertyName, resolvedMethodMeta)
-      }
-      resolvedMethodMeta.routes.push(...methodMeta.routes)
-      resolvedMethodMeta.middlewares.push(...methodMeta.middlewares)
-    })
-  }
-  return resolved
-}
-
-class Route {
-  verb: string
-  pathname: string
-  constructor({ verb, pathname }: { verb: string, pathname: string }) {
-    this.verb = verb
-    this.pathname = pathname
-  }
-}
-class MethodMeta {
-  routes: Route[] = []
-  middlewares: Middleware[] = []
-}
-
 /**
  * Marks a class as a controller and registers a prefix for all routes declared
  * on that class.
@@ -213,13 +126,7 @@ function internalMiddleware(mwMaker: MiddlewareMaker, { pushToBottom = false } =
 
       const mw = mwMaker({ controllerName, propertyName })
 
-      const controllerConstructor: ControllerConstructor = target.constructor
-      const methodMetaMap = ensureControllerMeta(controllerConstructor).methodMetaMap
-      if (!methodMetaMap.has(propertyName)) {
-        methodMetaMap.set(propertyName, new MethodMeta())
-      }
-      const methodMeta = methodMetaMap.get(propertyName)
-      assert.ok(methodMeta)
+      const methodMeta = ensureMethodMeta(constructor, propertyName)
 
       if (pushToBottom) {
         methodMeta.middlewares.push(mw)
@@ -337,12 +244,7 @@ export function request(verb = 'get', pathname = '/') {
   return (target: any, propertyName: string, _descriptor?: PropertyDescriptor) => {
     const controllerConstructor: ControllerConstructor = target.constructor
     debug(`@request ${controllerConstructor.name}/${propertyName} ${verb} ${pathname}`)
-    const methodMetaMap = ensureControllerMeta(controllerConstructor).methodMetaMap
-    if (!methodMetaMap.has(propertyName)) {
-      methodMetaMap.set(propertyName, new MethodMeta())
-    }
-    const methodMeta = methodMetaMap.get(propertyName)
-    assert.ok(methodMeta)
+    const methodMeta = ensureMethodMeta(controllerConstructor, propertyName)
 
     methodMeta.routes.push(new Route({
       verb,
@@ -460,16 +362,18 @@ export function loadRouter({
           ctx.body = result
         }
       }
+      defineHidden(mainMW, routeSymbol, { controllerName, propertyName, controllerMeta, methodMeta })
 
       for (const prefix of controllerMeta.prefixs) {
         for (const { verb, pathname } of methodMeta.routes) {
-          const route = (path.posix.join(prefix, pathname)).replace(/\/+$/, '') || '/'
+          const route = joinRoutePath(prefix, pathname)
           debug(`register ${verb} ${route} ${routerName} (${controllerMiddlewares.length + methodMiddlewares.length} mw)`)
           router.register(route, [verb], [...controllerMiddlewares, ...methodMiddlewares, mainMW], { name: routerName })
         }
       }
     })
   })
+  defineHidden(router, routerSymbol, true)
   return router
 }
 
